@@ -1,0 +1,97 @@
+FROM ubuntu:jammy
+
+LABEL org.opencontainers.image.authors="MergeTB"
+
+# Define the BSP version
+ARG BSP=https://developer.nvidia.com/downloads/embedded/l4t/r36_release_v5.0/release/Jetson_Linux_r36.5.0_aarch64.tbz2
+
+ARG L4T_PACKAGES
+
+# Install different dependencies
+RUN apt update && \
+    apt install -y \
+        wget \
+        patch \
+        bzip2 \
+        qemu-user-static \
+        sudo \
+        libxml2-utils \
+        python3 \
+        gdisk \
+        kpartx \
+        cpio \
+        binutils \
+        ssh \
+        python-is-python3 \
+        dosfstools \
+        python3-yaml \
+        build-essential \
+        lz4 \
+        cpio \
+        xmlstarlet
+
+# Extract the BSP
+RUN mkdir /build && \
+    wget -qO- $BSP | tar -jxpf - -C /build
+
+# Copy the ubuntu rootfs (built via build-merge-jetson-rootfs.sh — has 'test' user)
+COPY rootfs/ /build/Linux_for_Tegra/rootfs/
+
+# Sudo permissions
+RUN chmod 4755 /build/Linux_for_Tegra/rootfs/usr/bin/sudo
+
+# Different patches
+COPY patches /patches
+RUN patch /build/Linux_for_Tegra/nv_tegra/nv-apply-debs.sh < /patches/nv-apply-debs.diff && \
+    patch /build/Linux_for_Tegra/tools/jetson-disk-image-creator.sh < /patches/jetson-disk-image-creator.diff && \
+    patch /build/Linux_for_Tegra/tools/jetson-disk-image-creator.sh < /patches/agx-orin.diff && \
+    patch -p1 -d /build/Linux_for_Tegra < /patches/nvptparser.diff
+
+# Remove GUI packages
+RUN rm -rf /build/Linux_for_Tegra/nv_tegra/l4t_deb_packages/nvidia-l4t-nvpmodel-gui-tools*.deb && \
+    rm -rf /build/Linux_for_Tegra/nv_tegra/l4t_deb_packages/nvidia-l4t-jetsonpower-gui-tools*.deb && \
+    rm -rf /build/Linux_for_Tegra/tools/python-jetson-gpio_*_arm64.deb
+
+# Install nvidia packages in the new rootfs
+WORKDIR /build/Linux_for_Tegra/
+RUN ./apply_binaries.sh
+
+# Fix permissions
+RUN chroot /build/Linux_for_Tegra/rootfs/ /bin/bash -c "chown -R test:test /home/test && chmod 1777 /tmp"
+
+# L4T packages.
+# `nvidia-l4t-apt-source` ships its sources.list with a literal `<SOC>`
+# placeholder that NVIDIA's first-boot tooling substitutes on a real device.
+# In our build-time chroot nothing runs that, so we substitute t234 (Orin
+# Nano's Tegra234 SoC code)
+RUN mount -t proc proc rootfs/proc/ && \
+    mount -t sysfs sys rootfs/sys && \
+    mount -o bind /dev rootfs/dev && \
+    chroot rootfs /bin/bash -c "sed -i 's|<SOC>|t234|g' /etc/apt/sources.list.d/nvidia-l4t-apt-source.list && echo 'nameserver 8.8.8.8' > /etc/resolv.conf && apt update; apt install -y cuda-toolkit $L4T_PACKAGES"
+
+# any rootfs script that hardcodes a partition-1 device path will break
+
+# Apply MergeTB testbed customizations
+COPY scripts/merge-setup.sh /merge-setup.sh
+RUN cp /merge-setup.sh rootfs/merge-setup.sh && \
+    chmod +x rootfs/merge-setup.sh && \
+    mount -t proc proc rootfs/proc/ && \
+    mount -t sysfs sys rootfs/sys && \
+    mount -o bind /dev rootfs/dev && \
+    chroot rootfs /bin/bash /merge-setup.sh && \
+    rm rootfs/merge-setup.sh
+
+# Edit initrd
+WORKDIR /tmp/pythops
+RUN gzip -d -c /build/Linux_for_Tegra/bootloader/l4t_initrd.img > initrd
+WORKDIR /tmp/pythops/lab
+RUN cpio -iv < ../initrd && \
+    echo "nameserver 127.0.0.53" > etc/resolv.conf && \
+    find . | cpio --create --format="newc" > ../new_initrd
+WORKDIR /tmp/pythops
+RUN gzip new_initrd && mv new_initrd.gz /build/Linux_for_Tegra/bootloader/l4t_initrd.img
+
+# Image creation entrypoint with PARTUUID post-processing
+COPY scripts/create-merge-jetson-image.sh /usr/local/bin/
+
+WORKDIR /build/Linux_for_Tegra/tools

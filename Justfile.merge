@@ -1,0 +1,25 @@
+set positional-arguments := true
+
+# MergeTB jetson merge image build entrypoints.
+# Usage: just --justfile Justfile.merge <target>
+
+default:
+    @just --justfile Justfile.merge --list --unsorted
+
+# Build the rootfs (test user, 22.04 or 24.04). Pass --rebuild to skip the cache.
+build-merge-jetson-rootfs *args="":
+    -@scripts/build-merge-jetson-rootfs.sh {{ args }}
+
+# Build the merge jetson.img (orin-nano, NVMe, l4t36). Pass --rebuild to skip the cache.
+build-merge-jetson-image *args="":
+    -@scripts/build-merge-jetson-image.sh {{ args }}
+
+# Flash a built jetson.img (reuses upstream flasher)
+flash-jetson-image jetson-image device:
+    @scripts/flash-jetson-image.sh {{ jetson-image }} {{ device }}
+
+clean:
+    rm -rf base rootfs
+    sudo podman rmi -f localhost/jetson-merge-rootfs || true
+    sudo podman rmi -f localhost/jetson-merge-build-image-l4t36 || true
+    sudo rm -f jetson.img

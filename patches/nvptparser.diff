@@ -1,0 +1,17 @@
+--- a/tools/nvptparser.py
++++ b/tools/nvptparser.py
+@@ -59,6 +59,14 @@ def do_parse(config_file, storage):
+     if mbr:
+         partitions.append(mbr)
+
++    # MergeTB: move APP to the end before enumeration so it receives the
++    # highest part_num. embiggen-disk grows the highest-numbered partition;
++    # NVIDIA's stock layout pins APP at id=1 so /dev/mmcblk0p1 always resolves
++    # to the rootfs, but we override root= to PARTUUID at image-creation time
++    # so the fixed device path is no longer required.
++    if partitions and partitions[0][0] == 'APP':
++        partitions.append(partitions.pop(0))
++
+     result = []
+     for i, (name, size, filename, part_type) in enumerate(partitions):
+         result.append((i + 1, name, size, filename, part_type))
