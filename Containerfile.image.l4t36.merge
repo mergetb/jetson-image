@@ -71,6 +71,18 @@ RUN mount -t proc proc rootfs/proc/ && \
 
 # any rootfs script that hardcodes a partition-1 device path will break
 
+# First-boot rootfs resize service. sled stamps the image dd-style onto the
+# target NVMe, so the GPT secondary header lands at the image's original ~11 GB
+# end-of-image — hiding the rest of any larger destination disk from the
+# kernel. resizerootfs.sh moves the secondary header, grows the rootfs
+# partition, and online resize2fs's the filesystem on first boot.
+# merge-setup.sh enables the service and adds gdisk + cloud-guest-utils.
+COPY scripts/resizerootfs.sh /merge-resize.sh
+COPY scripts/resizerootfs.service /merge-resize.service
+RUN cp /merge-resize.sh rootfs/usr/local/bin/resizerootfs.sh && \
+    chmod +x rootfs/usr/local/bin/resizerootfs.sh && \
+    cp /merge-resize.service rootfs/etc/systemd/system/resizerootfs.service
+
 # Apply MergeTB testbed customizations
 COPY scripts/merge-setup.sh /merge-setup.sh
 RUN cp /merge-setup.sh rootfs/merge-setup.sh && \

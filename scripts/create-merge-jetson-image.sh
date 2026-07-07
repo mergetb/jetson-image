@@ -66,6 +66,21 @@ sudo cp -v "$MNT/boot/initrd" /jetson/boot-files/initrd
 sudo cp -v "$MNT/boot/extlinux/extlinux.conf" /jetson/boot-files/extlinux.conf
 sudo find "$MNT/boot/dtb" -maxdepth 1 -name '*.dtb' -exec cp -v {} /jetson/boot-files/ \;
 
+# Sled-server consumes a plain `cmdline` artifact: just the kernel args, no
+# `APPEND ` keyword, and with `${cbootargs}` stripped — kexec from sled
+# bypasses the L4T bootloader so the cboot-supplied tokens never get
+# substituted. Derive from the just-extracted extlinux.conf so this matches
+# exactly what the on-disk install would have booted with.
+printf "\nExtracting sled cmdline -> /jetson/boot-files/cmdline\n"
+awk '/^[[:space:]]*APPEND/ { $1=""; print; exit }' \
+        /jetson/boot-files/extlinux.conf \
+    | sed -E -e 's/\$\{cbootargs\}//' \
+             -e 's/[[:space:]]+/ /g' \
+             -e 's/^ //; s/ $//' \
+    | sudo tee /jetson/boot-files/cmdline > /dev/null
+sudo cat /jetson/boot-files/cmdline
+echo
+
 sudo umount "$MNT"
 rmdir "$MNT"
 sudo kpartx -dv "$LOOP_DEV"

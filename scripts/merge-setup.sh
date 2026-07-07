@@ -12,7 +12,10 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \
     tcpdump \
     openssh-server \
     systemd-resolved \
-    ca-certificates
+    ca-certificates \
+    gdisk \
+    cloud-guest-utils \
+    e2fsprogs
 
 # Journald: persistent, capped
 cat > /etc/systemd/journald.conf << 'EOF'
@@ -28,6 +31,22 @@ mkdir -p /etc/systemd/system.conf.d
 cat > /etc/systemd/system.conf.d/01-loglevel.conf << 'EOF'
 [Manager]
 LogLevel=info
+EOF
+
+# Quiet KERN_WARNING and below from the console. The specific motivation is
+# the NVMe uuid_show "providing old NGUID" warning fired by Crucial P310
+# (and other consumer NVMe SSDs that don't expose a UUID NID descriptor —
+# `nvme id-ns-descs` shows only EUI64) every time udev re-evaluates the
+# block device: one warning per partition per partprobe-style event, so
+# ~10 visible warnings per resize/stamp/uevent on a 16-partition Jetson.
+# The device can't be given a UUID (controller doesn't support NS
+# Management) so the kernel branch is steady-state for our hardware.
+# Demoting console_loglevel to 4 keeps EMERG/ALERT/CRIT/ERR visible on
+# the console; KERN_WARNING and below stay in dmesg/journal for debug.
+mkdir -p /etc/sysctl.d
+cat > /etc/sysctl.d/01-quiet-console.conf << 'EOF'
+# console_loglevel default_message_loglevel minimum_console_loglevel default_console_loglevel
+kernel.printk = 4 4 1 7
 EOF
 
 # SSH: skip reverse DNS
@@ -114,6 +133,7 @@ systemctl enable foundryc.service
 systemctl enable node_exporter.service
 systemctl enable systemd-networkd.service
 systemctl enable systemd-resolved.service
+systemctl enable resizerootfs.service
 # Jetson Orin debug UART
 systemctl enable serial-getty@ttyTCU0.service || true
 
