@@ -118,8 +118,8 @@ echo '%sudo ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/90-mergetb-nopasswd
 chmod 0440 /etc/sudoers.d/90-mergetb-nopasswd
 visudo -cf /etc/sudoers.d/90-mergetb-nopasswd
 
-# foundryc binary (arm64) pinned to v1.1.7
-curl -fL "https://gitlab.com/api/v4/projects/11436163/jobs/artifacts/v1.1.7/raw/build/foundryc-arm64?job=make" \
+# foundryc binary (arm64) pinned to v1.2.0
+curl -fL "https://gitlab.com/api/v4/projects/11436163/jobs/artifacts/v1.2.0/raw/build/foundryc-arm64?job=make" \
     -o /usr/local/bin/foundryc
 chmod 755 /usr/local/bin/foundryc
 
